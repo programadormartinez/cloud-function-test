@@ -1,0 +1,40 @@
+{
+  "name": "abastible-app-cloud-functions",
+  "version": "2.0.0",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "rm -rf ./dist && npm run set-environment:devops; tsc && cp package.json ./dist",
+    "deploy:dev": "npm run set-environment:dev; firebase deploy --only functions",
+    "deploy:prod": "npm run set-environment:prod; firebase deploy --only functions",
+    "deploy:staging": "npm run set-environment:staging; firebase deploy --only functions",
+    "lint": "eslint -c .eslintrc.js --ext .ts ./src",
+    "logs": "firebase functions:log",
+    "prepare:env": "firebase functions:config:get > .runtimeconfig.json",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "set-environment:dev": "ENV=dev node scripts/prepare-environment; firebase use dev",
+    "set-environment:devops": "ENV=${ENVIRONMENT_BUILD} node scripts/prepare-environment; ",
+    "set-environment:prod": "ENV=prod node scripts/prepare-environment; firebase use prod",
+    "set-environment:staging": "ENV=staging node scripts/prepare-environment; firebase use staging",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@types/node": "^22.10.2",
+    "firebase-admin": "^13.0.1",
+    "firebase-functions": "^6.1.2",
+    "json-stringify-safe": "^5.0.1",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "@types/json-stringify-safe": "^5.0.3",
+    "fs-extra": "^11.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}

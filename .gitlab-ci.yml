@@ -1,0 +1,81 @@
+variables:
+  GIT_DEPTH: 0
+stages:
+  - build
+  - deploy
+default:
+  tags:
+    - docker
+
+build:
+  stage: build
+  image: node:22
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 30 min
+  allow_failure: false
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" == "master" ]; then 
+        export ENVIRONMENT_BUILD=${ENVIRONMENT_BUILD_PRD};
+      fi
+    - |
+      npm install
+      npm run build
+
+deploy:
+  stage: deploy
+  image: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  only:
+    - master
+    - develop
+    - "/^feature/"
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" == "master" ]; then 
+        sed -i 's/ENV=${ENVIRONMENT_BUILD}/ENV=prod/g' package.json;
+      else
+        sed -i 's/ENV=${ENVIRONMENT_BUILD}/ENV=dev/g' package.json;
+      fi
+    - |
+      if [ "$CI_COMMIT_BRANCH" == "master" ]; then 
+        export ENVIRONMENT=prd; 
+        export GCP_PROJECT_ID="${GCP_PROJECT_ID_PRD}"; 
+        export ENV_FILE="${ENV_FILE_PRD}"; 
+        export FUNCTION_NAME="${FUNCTION_NAME_PRD}"; 
+        export REGION_FUNCTION="${REGION_FUNCTION_PRD}"; 
+        export RUNTIME_FUNCTION="${RUNTIME_FUNCTION_PRD}"; 
+        export MIN_INSTANCE="${MIN_INSTANCE_PRD}"; 
+        export TRIGGER_EVENT="${TRIGGER_EVENT_PRD}"; 
+        export TRIGGER_RESOURCE="${TRIGGER_RESOURCE_PRD}"; 
+      fi
+    - if [ -z "${ENVIRONMENT}" ]; then export ENVIRONMENT=tst; fi
+    - ls -ltr src/
+    - echo "environment ${ENVIRONMENT} projectid ${GCP_PROJECT_ID} "
+
+    - apt install jq -y
+    - VAULT_TOKEN=$(curl -X POST -H "Content-Type:application/json" -d '{"password":"'${PASS_VAULT}'"}' -sS ${PATH_VAULT_LOGIN}${USER_VAULT} | jq ".auth.client_token" -r)
+
+    - URL=${PATH_VAULT_KV}${CI_PROJECT_NAME}/data/${ENVIRONMENT}/env
+    - curl -H "X-Vault-Token:${VAULT_TOKEN}" -X GET -sS ${URL} | jq ".data.data" -r > .runtimeconfig.json
+    - cp .runtimeconfig.json dist/
+    - URL=${PATH_VAULT_KV}${CI_PROJECT_NAME}/data/${ENVIRONMENT}/sa/sa-deploy
+    - curl -H "X-Vault-Token:${VAULT_TOKEN}" -X GET -sS ${URL} | jq ".data.data.file" -r | base64 -d > sa.json
+    - SA=`cat sa.json | jq -r '.client_email'`
+    - gcloud config set disable_prompts true
+    - gcloud auth activate-service-account $SA --key-file=sa.json
+    - gcloud config set project ${GCP_PROJECT_ID}
+
+    - |
+      gcloud functions deploy ${FUNCTION_NAME} \
+        --retry \
+        --trigger-event ${TRIGGER_EVENT} \
+        --trigger-resource ${TRIGGER_RESOURCE} \
+        --entry-point=${FUNCTION_NAME} \
+        --region=${REGION_FUNCTION} \
+        --runtime=${RUNTIME_FUNCTION} \
+        --min-instances ${MIN_INSTANCE} \
+        --service-account=$SA \
+        --env-vars-file=${ENV_FILE} \
+        --no-gen2
